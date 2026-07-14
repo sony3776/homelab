@@ -2,7 +2,7 @@
 
 Home server 24/7 untuk web server, file cloud, dan AI lokal. Uptime 17+ hari.
 
-**Live:** https://appme.my.id (ganti dengan domain kamu)
+**Live:** https://appme.my.id
 **GitHub:** sony3776
 
 ### Infra Spec
