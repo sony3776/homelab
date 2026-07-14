@@ -1,0 +1,131 @@
+# Homelab - Sony3776
+# Lenovo ThinkCentre M910q | Ubuntu 24.04.4 LTS | i7-7700 | 31GB RAM
+# Generated from live server: mail.appme.my.id
+
+version: "3.8"
+
+networks:
+  homelab:
+    driver: bridge
+  frontend:
+    driver: bridge
+
+volumes:
+  ollama_data:
+  anythingllm_storage:
+  seafile_data:
+  seafile_mysql_data:
+  n8n_data:
+
+services:
+  # --- Local AI Stack ---
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - homelab
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+
+  anythingllm:
+    image: mintplexlabs/anythingllm:latest
+    container_name: anythingllm
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    ports:
+      - "3003:3001"
+    environment:
+      - STORAGE_DIR=/app/server/storage
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - anythingllm_storage:/app/server/storage
+    networks:
+      - homelab
+      - frontend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # --- Automation ---
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: autoweb-n8n-1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678" # locked to localhost, access via Nginx
+    environment:
+      - GENERIC_TIMEZONE=Asia/Jakarta
+      - TZ=Asia/Jakarta
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - homelab
+
+  # --- File Cloud (Seafile) ---
+  seafile-mysql:
+    image: mariadb:10.11
+    container_name: seafile-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${SEAFILE_MYSQL_ROOT_PASSWORD:-change_me}
+      - MYSQL_LOG_CONSOLE=true
+    volumes:
+      - seafile_mysql_data:/var/lib/mysql
+    networks:
+      - homelab
+
+  seafile-memcached:
+    image: memcached:1.6
+    container_name: seafile-memcached
+    restart: unless-stopped
+    networks:
+      - homelab
+
+  seafile:
+    image: seafileltd/seafile-mc:11.0-latest
+    container_name: seafile
+    restart: unless-stopped
+    depends_on:
+      - seafile-mysql
+      - seafile-memcached
+    ports:
+      - "8080:80"
+    environment:
+      - DB_HOST=seafile-mysql
+      - DB_ROOT_PASSWD=${SEAFILE_MYSQL_ROOT_PASSWORD:-change_me}
+      - SEAFILE_ADMIN_EMAIL=${SEAFILE_ADMIN:-admin@appme.my.id}
+      - SEAFILE_ADMIN_PASSWORD=${SEAFILE_ADMIN_PASS:-change_me}
+    volumes:
+      - seafile_data:/shared
+    networks:
+      - homelab
+      - frontend
+
+  # --- Monitoring ---
+  scrutiny:
+    image: ghcr.io/analogj/scrutiny:master-omnibus
+    container_name: scrutiny
+    restart: unless-stopped
+    cap_add:
+      - SYS_RAWIO
+    ports:
+      - "9095:8080" # web UI
+      - "8066:8086" # influxdb
+    volumes:
+      - /run/udev:/run/udev:ro
+      - scrutiny_data:/opt/scrutiny/config
+    networks:
+      - homelab
+    devices:
+      - /dev/sda
+      - /dev/sdc
